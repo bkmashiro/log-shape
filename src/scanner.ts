@@ -51,6 +51,25 @@ export async function scanPath(targetPath: string, options: ScanOptions): Promis
   };
 }
 
+export async function resolveScanFiles(targetPath: string, options: ScanOptions): Promise<string[]> {
+  const absoluteTarget = path.resolve(targetPath);
+  const targetStat = await stat(absoluteTarget);
+
+  if (targetStat.isFile()) {
+    return [absoluteTarget];
+  }
+
+  const patterns = options.extensions.map((ext) => `**/*${normalizeExtension(ext)}`);
+  const files = await glob(patterns, {
+    cwd: absoluteTarget,
+    absolute: true,
+    nodir: true,
+    ignore: options.ignore.map((entry) => normalizeIgnore(entry))
+  });
+
+  return files.sort();
+}
+
 export function extractLogCallsFromText(source: string, filePath: string): LogCall[] {
   return source.split(/\r?\n/).flatMap((line, index) => {
     if (!CALL_LINE_RE.test(line)) {

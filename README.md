@@ -30,12 +30,22 @@ Options:
 - `--no-fail` Don't exit with status code `1` on inconsistent files
 - `--ext <exts>` Comma-separated extensions to scan, default: `.ts,.js,.tsx,.jsx`
 - `--ignore <pat>` Comma-separated glob patterns to ignore, default: `node_modules,dist,test`
+- `--config <path>` Load `.logshaperc` JSON config from the current working directory or a custom path
+- `--fix` Rewrite supported `console.*` calls to a consistent target style
+- `--target <style>` Rewrite target: `structured` or `template`, default: `structured`
+- `--dry-run` Preview rewrites without modifying files
 - `--suggest` Show pino/winston migration snippets
 
 Example:
 
 ```bash
 log-shape src/ --suggest
+```
+
+Fix mode example:
+
+```bash
+log-shape src/ --fix --target structured --dry-run
 ```
 
 ## What It Detects
@@ -49,6 +59,30 @@ Each supported log call is classified into one of these styles:
 - `plain-string` `console.log("simple message")`
 
 Files with more than two distinct styles are flagged as inconsistent.
+
+You can tighten that rule with config by setting `maxMixedStyles`, or explicitly allow only certain styles with `allowStyles`.
+
+## Config
+
+`log-shape` automatically loads `.logshaperc` from the current working directory when present. You can also point at a specific file with `--config`.
+
+Example:
+
+```json
+{
+  "logger": "pino",
+  "allowStyles": ["structured"],
+  "ignoreFiles": ["src/legacy/**"],
+  "maxMixedStyles": 1
+}
+```
+
+Fields:
+
+- `logger`: logger family to emit during `--fix` rewrites. `pino` and `winston` emit `logger.info(...)` / `logger.error(...)`; `console` keeps `console.*(...)`
+- `allowStyles`: styles considered acceptable during reporting
+- `ignoreFiles`: additional glob patterns to skip during scan/fix
+- `maxMixedStyles`: maximum distinct styles allowed per file before it is flagged
 
 ## How It Works
 

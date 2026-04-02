@@ -1,3 +1,4 @@
+import type { LogStyle } from "./detector.js";
 import type { LogCall, ScanOptions } from "./scanner.js";
 
 export interface Report {
@@ -8,12 +9,15 @@ export interface Report {
   dominantStyle: DistributionEntry | null;
   hasMixedStyles: boolean;
   options: ScanOptions;
+  allowedStyles: LogStyle[];
+  maxMixedStyles: number;
 }
 
 export interface FileIssue {
   filePath: string;
   styles: string[];
   calls: LogCall[];
+  disallowedCalls: LogCall[];
 }
 
 export interface DistributionEntry {
@@ -22,14 +26,19 @@ export interface DistributionEntry {
   percentage: number;
 }
 
-const REPORTABLE_STYLES = [
+export const REPORTABLE_STYLES = [
   "structured",
   "string-concat",
   "template-literal",
   "raw-dump"
 ] as const;
 
-export function createReport(calls: LogCall[], analyzedFiles: number, options: ScanOptions): Report {
+export interface ReportOptions extends ScanOptions {
+  allowStyles: LogStyle[];
+  maxMixedStyles: number;
+}
+
+export function createReport(calls: LogCall[], analyzedFiles: number, options: ReportOptions): Report {
   const reportableCalls = calls.filter((call) =>
     REPORTABLE_STYLES.includes(call.style as (typeof REPORTABLE_STYLES)[number])
   );
@@ -43,7 +52,8 @@ export function createReport(calls: LogCall[], analyzedFiles: number, options: S
   const dominantStyle = [...distribution].sort((left, right) => right.count - left.count)[0] ?? null;
   const flaggedFiles = groupByFile(calls).flatMap(([filePath, fileCalls]) => {
     const styles = [...new Set(fileCalls.map((call) => call.style).filter((style) => style !== "unknown"))];
-    if (styles.length <= 2) {
+    const disallowedCalls = fileCalls.filter((call) => !options.allowStyles.includes(call.style));
+    if (styles.length <= options.maxMixedStyles && disallowedCalls.length === 0) {
       return [];
     }
 
@@ -51,7 +61,8 @@ export function createReport(calls: LogCall[], analyzedFiles: number, options: S
       {
         filePath,
         styles,
-        calls: fileCalls
+        calls: fileCalls,
+        disallowedCalls
       }
     ];
   });
@@ -63,7 +74,9 @@ export function createReport(calls: LogCall[], analyzedFiles: number, options: S
     distribution,
     dominantStyle,
     hasMixedStyles: flaggedFiles.length > 0,
-    options
+    options,
+    allowedStyles: options.allowStyles,
+    maxMixedStyles: options.maxMixedStyles
   };
 }
 

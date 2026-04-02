@@ -2,10 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, readFile } from "node:fs/promises";
+import { DEFAULT_CONFIG, loadConfig } from "../src/config.js";
 import { classifyLogCall } from "../src/detector.js";
+import { fixFile } from "../src/fixer.js";
 import { createReport } from "../src/reporter.js";
 import { extractLogCallsFromText, scanPath } from "../src/scanner.js";
+
+const reportDefaults = {
+  extensions: [".ts"],
+  ignore: [],
+  allowStyles: DEFAULT_CONFIG.allowStyles,
+  maxMixedStyles: DEFAULT_CONFIG.maxMixedStyles
+} as const;
 
 test("classifies string concat", () => {
   assert.equal(classifyLogCall('console.log("user:", user)')?.style, "string-concat");
@@ -64,12 +73,89 @@ test("extracts line numbers correctly", () => {
   );
 });
 
+test("report respects maxMixedStyles config", () => {
+  const calls = extractLogCallsFromText(
+    ['console.log("a:", value)', "console.log(`b=${value}`)", "console.log(obj)"].join("\n"),
+    "/tmp/mixed-threshold.ts"
+  );
+  const report = createReport(calls, 1, {
+    extensions: [".ts"],
+    ignore: [],
+    allowStyles: DEFAULT_CONFIG.allowStyles,
+    maxMixedStyles: 3
+  });
+  assert.equal(report.flaggedFiles.length, 0);
+});
+
+test("report flags styles disallowed by config", () => {
+  const calls = extractLogCallsFromText(['console.log("a:", value)', 'logger.info({ msg: "ok" })'].join("\n"), "/tmp/disallowed.ts");
+  const report = createReport(calls, 1, {
+    extensions: [".ts"],
+    ignore: [],
+    allowStyles: ["structured"],
+    maxMixedStyles: 2
+  });
+  assert.equal(report.flaggedFiles.length, 1);
+  assert.equal(report.flaggedFiles[0]?.disallowedCalls.length, 1);
+  assert.equal(report.flaggedFiles[0]?.disallowedCalls[0]?.style, "string-concat");
+});
+
+test("loadConfig reads .logshaperc JSON", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-config-"));
+  const configPath = path.join(tempDir, ".logshaperc");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      logger: "console",
+      allowStyles: ["structured"],
+      ignoreFiles: ["src/legacy/**"],
+      maxMixedStyles: 1
+    }),
+    "utf8"
+  );
+
+  const loaded = await loadConfig(configPath);
+  assert.deepEqual(loaded, {
+    path: configPath,
+    config: {
+      logger: "console",
+      allowStyles: ["structured"],
+      ignoreFiles: ["src/legacy/**"],
+      maxMixedStyles: 1
+    }
+  });
+});
+
+test("fixFile rewrites string concat to structured logger call", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-fix-"));
+  const filePath = path.join(tempDir, "sample.ts");
+  await writeFile(filePath, 'console.log("user:", user)\n', "utf8");
+
+  const result = await fixFile(filePath, { target: "structured", logger: "pino", dryRun: false });
+  const updated = await readFile(filePath, "utf8");
+
+  assert.equal(result.rewrites.length, 1);
+  assert.equal(updated.trim(), 'logger.info({ msg: "user", user })');
+});
+
+test("fixFile dry-run previews template rewrite without writing", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-fix-preview-"));
+  const filePath = path.join(tempDir, "sample.ts");
+  await writeFile(filePath, "console.log(`x=${x}`)\n", "utf8");
+
+  const result = await fixFile(filePath, { target: "structured", logger: "console", dryRun: true });
+  const unchanged = await readFile(filePath, "utf8");
+
+  assert.equal(result.rewrites[0]?.after, "console.log({ msg: `x=${x}` })");
+  assert.equal(unchanged.trim(), "console.log(`x=${x}`)");
+});
+
 test("single-style file is not flagged", () => {
   const calls = extractLogCallsFromText(
     ['console.log("a:", value)', 'console.error("b:", err)'].join("\n"),
     "/tmp/one-style.ts"
   );
-  const report = createReport(calls, 1, { extensions: [".ts"], ignore: [] });
+  const report = createReport(calls, 1, reportDefaults);
   assert.equal(report.flaggedFiles.length, 0);
 });
 
@@ -78,7 +164,7 @@ test("three-style file is flagged", () => {
     ['console.log("a:", value)', "console.log(`b=${value}`)", "console.log(obj)"].join("\n"),
     "/tmp/mixed.ts"
   );
-  const report = createReport(calls, 1, { extensions: [".ts"], ignore: [] });
+  const report = createReport(calls, 1, reportDefaults);
   assert.equal(report.flaggedFiles.length, 1);
 });
 
@@ -87,7 +173,7 @@ test("unknown styles do not cause a file to be flagged", () => {
     ["console.log()", 'console.log("a:", value)', 'console.error("b:", err)'].join("\n"),
     "/tmp/mostly-one-style.ts"
   );
-  const report = createReport(calls, 1, { extensions: [".ts"], ignore: [] });
+  const report = createReport(calls, 1, reportDefaults);
   assert.equal(report.flaggedFiles.length, 0);
 });
 

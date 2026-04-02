@@ -31,7 +31,8 @@ export function formatReport(report: Report, rootPath: string, includeSuggestion
       for (const call of issue.calls) {
         const displayPath = toDisplayPath(rootPath, call.filePath);
         const location = `${displayPath}:${call.line}`.padEnd(18);
-        lines.push(`${location} ${call.code} ${chalk.dim("←")} ${STYLE_NOTES[call.style]}`);
+        const suffix = issue.disallowedCalls.includes(call) ? " (disallowed by config)" : "";
+        lines.push(`${location} ${call.code} ${chalk.dim("←")} ${STYLE_NOTES[call.style]}${suffix}`);
       }
     }
   } else {
@@ -56,6 +57,11 @@ export function formatReport(report: Report, rootPath: string, includeSuggestion
     }
   }
 
+  if (report.allowedStyles.length < 6) {
+    lines.push("");
+    lines.push(`Allowed styles: ${report.allowedStyles.join(", ")}`);
+  }
+
   if (includeSuggestions) {
     lines.push("");
     lines.push("Migration suggestions:");
@@ -74,6 +80,12 @@ export function formatJson(report: Report, rootPath: string): string {
       flaggedFiles: report.flaggedFiles.map((issue) => ({
         filePath: toDisplayPath(rootPath, issue.filePath),
         styles: issue.styles,
+        disallowedCalls: issue.disallowedCalls.map((call) => ({
+          line: call.line,
+          callee: call.callee,
+          style: call.style,
+          code: call.code
+        })),
         calls: issue.calls.map((call) => ({
           line: call.line,
           callee: call.callee,
@@ -82,7 +94,9 @@ export function formatJson(report: Report, rootPath: string): string {
         }))
       })),
       distribution: report.distribution,
-      dominantStyle: report.dominantStyle
+      dominantStyle: report.dominantStyle,
+      allowedStyles: report.allowedStyles,
+      maxMixedStyles: report.maxMixedStyles
     },
     null,
     2
