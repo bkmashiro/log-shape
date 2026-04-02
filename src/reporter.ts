@@ -11,6 +11,16 @@ export interface Report {
   options: ScanOptions;
   allowedStyles: LogStyle[];
   maxMixedStyles: number;
+  summary: ReportSummary;
+}
+
+export interface ReportSummary {
+  totalCalls: number;
+  styles: Record<string, number>;
+  inconsistentFiles: string[];
+  score: number;
+  mixedStylesPenalty: number;
+  rawDumpPenalty: number;
 }
 
 export interface FileIssue {
@@ -67,6 +77,12 @@ export function createReport(calls: LogCall[], analyzedFiles: number, options: R
     ];
   });
 
+  const styleCounts = Object.fromEntries(distribution.map((entry) => [entry.style, entry.count]));
+  const activeStyleCount = distribution.filter((entry) => entry.count > 0).length;
+  const mixedStylesPenalty = Math.max(0, activeStyleCount - 1) * 10;
+  const rawDumpPenalty = Math.ceil((styleCounts["raw-dump"] ?? 0) * 1.5);
+  const score = Math.max(0, 100 - mixedStylesPenalty - rawDumpPenalty);
+
   return {
     analyzedFiles,
     calls,
@@ -76,7 +92,15 @@ export function createReport(calls: LogCall[], analyzedFiles: number, options: R
     hasMixedStyles: flaggedFiles.length > 0,
     options,
     allowedStyles: options.allowStyles,
-    maxMixedStyles: options.maxMixedStyles
+    maxMixedStyles: options.maxMixedStyles,
+    summary: {
+      totalCalls: reportableCalls.length,
+      styles: styleCounts,
+      inconsistentFiles: flaggedFiles.map((issue) => issue.filePath),
+      score,
+      mixedStylesPenalty,
+      rawDumpPenalty
+    }
   };
 }
 

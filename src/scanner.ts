@@ -19,7 +19,7 @@ export interface ScanResult {
   calls: LogCall[];
 }
 
-const CALL_LINE_RE = /\b(?:console|logger|pino|winston)\.[A-Za-z_$][\w$]*\s*\(.*\)\s*;?\s*$/;
+const CALL_LINE_RE = /\b(?:console|logger|pino|winston|bunyan)\.[A-Za-z_$][\w$]*\s*\(.*\)\s*;?\s*$/;
 
 export async function scanPath(targetPath: string, options: ScanOptions): Promise<ScanResult> {
   const absoluteTarget = path.resolve(targetPath);

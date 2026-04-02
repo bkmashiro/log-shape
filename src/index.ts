@@ -3,7 +3,8 @@ import { Command } from "commander";
 import path from "node:path";
 import { DEFAULT_CONFIG, loadConfig } from "./config.js";
 import { fixFiles, type FixTarget } from "./fixer.js";
-import { formatJson, formatReport } from "./formatter.js";
+import { formatHtmlReport, formatJsonReport, formatTextReport } from "./formatter.js";
+import { migrateFiles, type MigrationTarget } from "./migrator.js";
 import { createReport } from "./reporter.js";
 import { resolveScanFiles, scanPath } from "./scanner.js";
 
@@ -22,6 +23,8 @@ program
   .option("--suggest", "Show migration suggestions (pino/winston snippets)")
   .option("--fix", "Rewrite supported log calls to a consistent target style")
   .option("--target <style>", "Rewrite target style: structured or template", "structured")
+  .option("--migrate <style>", "Migrate log calls to pino, winston, bunyan, or console style")
+  .option("--report <mode>", "Report output mode: text, json, or html")
   .option("--dry-run", "Preview rewrites without writing files")
   .option("--config <path>", "Path to .logshaperc JSON config")
   .action(async (targetPath: string, options) => {
@@ -31,6 +34,11 @@ program
     const ignore = [...new Set([...splitCsv(options.ignore), ...config.ignoreFiles])];
     const resolvedPath = path.resolve(targetPath);
     const target = parseTarget(options.target);
+    const reportMode = parseReportMode(options.report, Boolean(options.json));
+
+    if (options.fix && options.migrate) {
+      throw new Error("Use either --fix or --migrate, not both.");
+    }
 
     if (loadedConfig) {
       process.stdout.write(`Using config: ${path.relative(process.cwd(), loadedConfig.path) || path.basename(loadedConfig.path)}\n`);
@@ -66,6 +74,35 @@ program
       return;
     }
 
+    if (options.migrate) {
+      const migrationTarget = parseMigrationTarget(options.migrate);
+      const files = await resolveScanFiles(resolvedPath, { extensions, ignore });
+      const results = await migrateFiles(files, {
+        target: migrationTarget,
+        dryRun: Boolean(options.dryRun)
+      });
+      const rewrites = results.flatMap((result) => result.rewrites.map((rewrite) => ({ filePath: result.filePath, ...rewrite })));
+      const mode = options.dryRun ? "Would migrate" : "Migrating";
+      process.stdout.write(`${mode} ${rewrites.length} console/log call${rewrites.length === 1 ? "" : "s"} to ${migrationTarget} style...\n`);
+      for (const result of results) {
+        if (result.addedImport) {
+          process.stdout.write(`  Added import: ${result.addedImport}\n`);
+        }
+        if (result.removedImport) {
+          process.stdout.write(`  Removed import: ${result.removedImport}\n`);
+        }
+      }
+      for (const rewrite of rewrites) {
+        const displayPath = path.relative(process.cwd(), rewrite.filePath) || path.basename(rewrite.filePath);
+        process.stdout.write(`  ${displayPath}:${rewrite.line}  ${rewrite.before}  ->  ${rewrite.after}\n`);
+      }
+      process.stdout.write(
+        `${rewrites.length} call${rewrites.length === 1 ? "" : "s"} ${options.dryRun ? "would be migrated" : "migrated"}.` +
+          `${options.dryRun ? "\n" : " Run: git diff to review changes.\n"}`
+      );
+      return;
+    }
+
     const scanResult = await scanPath(resolvedPath, { extensions, ignore });
     const report = createReport(scanResult.calls, scanResult.files.length, {
       extensions,
@@ -74,7 +111,12 @@ program
       maxMixedStyles: config.maxMixedStyles
     });
 
-    const output = options.json ? formatJson(report, process.cwd()) : formatReport(report, process.cwd(), options.suggest);
+    const output =
+      reportMode === "html"
+        ? formatHtmlReport(report, process.cwd())
+        : reportMode === "json"
+          ? formatJsonReport(report, process.cwd())
+          : formatTextReport(report, process.cwd(), options.suggest);
     process.stdout.write(`${output}\n`);
 
     if (report.hasMixedStyles && options.fail) {
@@ -101,4 +143,24 @@ function parseTarget(value: string): FixTarget {
   }
 
   throw new Error(`Unsupported --target value: ${value}`);
+}
+
+function parseMigrationTarget(value: string): MigrationTarget {
+  if (value === "pino" || value === "winston" || value === "bunyan" || value === "console") {
+    return value;
+  }
+
+  throw new Error(`Unsupported --migrate value: ${value}`);
+}
+
+function parseReportMode(value: string | undefined, legacyJson: boolean): "text" | "json" | "html" {
+  if (!value) {
+    return legacyJson ? "json" : "text";
+  }
+
+  if (value === "text" || value === "json" || value === "html") {
+    return value;
+  }
+
+  throw new Error(`Unsupported --report value: ${value}`);
 }

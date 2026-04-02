@@ -33,6 +33,8 @@ Options:
 - `--config <path>` Load `.logshaperc` JSON config from the current working directory or a custom path
 - `--fix` Rewrite supported `console.*` calls to a consistent target style
 - `--target <style>` Rewrite target: `structured` or `template`, default: `structured`
+- `--migrate <style>` Rewrite supported log calls to `pino`, `winston`, `bunyan`, or `console` style
+- `--report <mode>` Report output mode: `text`, `json`, or `html`
 - `--dry-run` Preview rewrites without modifying files
 - `--suggest` Show pino/winston migration snippets
 
@@ -46,6 +48,19 @@ Fix mode example:
 
 ```bash
 log-shape src/ --fix --target structured --dry-run
+```
+
+Migration mode example:
+
+```bash
+log-shape src/ --migrate pino
+```
+
+Report mode examples:
+
+```bash
+log-shape src/ --report json
+log-shape src/ --report html > log-report.html
 ```
 
 ## What It Detects
@@ -87,6 +102,12 @@ Fields:
 ## How It Works
 
 `log-shape` uses line-based static regex analysis. It does not execute code or build a full AST. This keeps the CLI fast and simple, but means it is intentionally best-effort for common single-line logging patterns.
+
+## Round 3
+
+- `--migrate <style>` rewrites recognized single-line logging calls and adds or removes `import logger from "...";` when needed
+- `--report json` exposes a `summary` block with total calls, style counts, inconsistent files, and a heuristic score
+- `--report html` emits a standalone HTML report suitable for CI artifacts
 
 ## Migration Guide
 

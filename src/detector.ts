@@ -11,7 +11,7 @@ export interface DetectionResult {
   style: LogStyle;
 }
 
-const LOGGER_CALL_RE = /\b(?<callee>(?:console|logger|pino|winston)\.[A-Za-z_$][\w$]*)\s*\((?<args>.*)\)\s*;?\s*$/;
+const LOGGER_CALL_RE = /\b(?<callee>(?:console|logger|pino|winston|bunyan)\.[A-Za-z_$][\w$]*)\s*\((?<args>.*)\)\s*;?\s*$/;
 
 export function classifyLogCall(sourceLine: string): DetectionResult | null {
   const trimmed = sourceLine.trim();
@@ -56,7 +56,7 @@ function classifyArgs(callee: string, args: string): LogStyle {
 }
 
 function isStructuredLogger(callee: string, args: string): boolean {
-  return /^(?:logger|pino|winston)\./.test(callee) && /^\{[\s\S]*\}$/.test(args);
+  return /^(?:logger|pino|winston|bunyan)\./.test(callee) && /^\{[\s\S]*\}$/.test(args);
 }
 
 function isTemplateLiteral(args: string): boolean {

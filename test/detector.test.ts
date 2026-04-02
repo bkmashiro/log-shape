@@ -6,6 +6,8 @@ import { mkdtemp, writeFile, mkdir, readFile } from "node:fs/promises";
 import { DEFAULT_CONFIG, loadConfig } from "../src/config.js";
 import { classifyLogCall } from "../src/detector.js";
 import { fixFile } from "../src/fixer.js";
+import { formatHtmlReport, formatJsonReport } from "../src/formatter.js";
+import { migrateFile } from "../src/migrator.js";
 import { createReport } from "../src/reporter.js";
 import { extractLogCallsFromText, scanPath } from "../src/scanner.js";
 
@@ -34,6 +36,10 @@ test("classifies plain string", () => {
 
 test("classifies structured logger call", () => {
   assert.equal(classifyLogCall('logger.info({ msg: "ok" })')?.style, "structured");
+});
+
+test("classifies bunyan structured logger call", () => {
+  assert.equal(classifyLogCall('bunyan.info({ msg: "ok" })')?.style, "structured");
 });
 
 test("classifies console.error as string concat", () => {
@@ -150,6 +156,54 @@ test("fixFile dry-run previews template rewrite without writing", async () => {
   assert.equal(unchanged.trim(), "console.log(`x=${x}`)");
 });
 
+test("migrateFile rewrites to pino style and inserts import", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-migrate-pino-"));
+  const filePath = path.join(tempDir, "sample.ts");
+  await writeFile(filePath, 'console.log("user:", user)\n', "utf8");
+
+  const result = await migrateFile(filePath, { target: "pino", dryRun: false });
+  const updated = await readFile(filePath, "utf8");
+
+  assert.equal(result.addedImport, 'import logger from "pino";');
+  assert.equal(result.rewrites[0]?.after, 'logger.info({ msg: "user", user })');
+  assert.equal(updated.trim(), ['import logger from "pino";', 'logger.info({ msg: "user", user })'].join("\n"));
+});
+
+test("migrateFile rewrites to winston style", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-migrate-winston-"));
+  const filePath = path.join(tempDir, "sample.ts");
+  await writeFile(filePath, 'console.error("DB:", err)\n', "utf8");
+
+  const result = await migrateFile(filePath, { target: "winston", dryRun: false });
+
+  assert.equal(result.addedImport, 'import logger from "winston";');
+  assert.equal(result.rewrites[0]?.after, 'logger.error({ msg: "DB", err })');
+});
+
+test("migrateFile rewrites to bunyan style", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-migrate-bunyan-"));
+  const filePath = path.join(tempDir, "sample.ts");
+  await writeFile(filePath, 'console.warn("retry:", count)\n', "utf8");
+
+  const result = await migrateFile(filePath, { target: "bunyan", dryRun: false });
+
+  assert.equal(result.addedImport, 'import logger from "bunyan";');
+  assert.equal(result.rewrites[0]?.after, 'logger.warn({ msg: "retry", count })');
+});
+
+test("migrateFile rewrites logger calls back to console and removes import", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "log-shape-migrate-console-"));
+  const filePath = path.join(tempDir, "sample.ts");
+  await writeFile(filePath, 'import logger from "pino";\nlogger.info({ msg: "ok" })\n', "utf8");
+
+  const result = await migrateFile(filePath, { target: "console", dryRun: false });
+  const updated = await readFile(filePath, "utf8");
+
+  assert.equal(result.removedImport, 'import logger from "pino";');
+  assert.equal(result.rewrites[0]?.after, 'console.info({ msg: "ok" })');
+  assert.equal(updated.trim(), 'console.info({ msg: "ok" })');
+});
+
 test("single-style file is not flagged", () => {
   const calls = extractLogCallsFromText(
     ['console.log("a:", value)', 'console.error("b:", err)'].join("\n"),
@@ -166,6 +220,9 @@ test("three-style file is flagged", () => {
   );
   const report = createReport(calls, 1, reportDefaults);
   assert.equal(report.flaggedFiles.length, 1);
+  assert.equal(report.summary.totalCalls, 3);
+  assert.equal(report.summary.styles["raw-dump"], 1);
+  assert.equal(report.summary.score, 78);
 });
 
 test("unknown styles do not cause a file to be flagged", () => {
@@ -225,4 +282,20 @@ test("scanPath scans directories with normalized extensions and ignore rules", a
       { filePath: "src/nested/second.js", style: "structured", line: 1 }
     ]
   );
+});
+
+test("formatters include summary in json and html modes", () => {
+  const calls = extractLogCallsFromText(
+    ['console.log("a:", value)', "console.log(`b=${value}`)", "console.log(obj)"].join("\n"),
+    "/tmp/report.ts"
+  );
+  const report = createReport(calls, 1, reportDefaults);
+
+  const json = JSON.parse(formatJsonReport(report, "/tmp"));
+  const html = formatHtmlReport(report, "/tmp");
+
+  assert.equal(json.summary.totalCalls, 3);
+  assert.deepEqual(json.summary.inconsistentFiles, ["report.ts"]);
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, /Score 78\/100/);
 });
