@@ -1,3 +1,5 @@
+[![npm](https://img.shields.io/npm/v/log-shape)](https://www.npmjs.com/package/log-shape) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 # log-shape
 
 `log-shape` is a TypeScript CLI that scans JS/TS source files and highlights inconsistent logging patterns. It uses static regex analysis to classify `console.*`, `logger.*`, `pino.*`, and `winston.*` calls, then reports mixed styles and distribution across the codebase.
