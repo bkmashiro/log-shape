@@ -1,0 +1,27 @@
+{
+  "name": "log-shape",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "log-shape": "dist/index.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc",
+    "test": "node --import tsx/esm --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^14.0.0",
+    "glob": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^6.0.0"
+  }
+}
